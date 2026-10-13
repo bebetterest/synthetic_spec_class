@@ -1,0 +1,28 @@
+[project]
+name = "synthetic-spec-class"
+version = "0.1.0"
+description = "Synthesize alignment data from model specs, then fine-tune and sample with Tinker."
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = ["httpx>=0.27"]
+
+[project.optional-dependencies]
+dev = ["pytest>=8"]
+train = ["tinker-cookbook>=0.5"]
+
+[project.scripts]
+synthetic-spec-synthesize = "synthesis.cli:main"
+synthetic-spec-train = "training.cli:main"
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+include = ["synthesis*", "training*"]
+
+[tool.setuptools.package-data]
+synthesis = ["examples/*.jsonl"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

@@ -1,0 +1,2 @@
+{"id": "smoke-1", "prompt": "Say hello in one short sentence."}
+{"id": "smoke-2", "messages": [{"role": "user", "content": "Name one primary color."}], "temperature": 0}
