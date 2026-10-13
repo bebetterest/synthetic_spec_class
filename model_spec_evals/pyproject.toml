@@ -1,0 +1,23 @@
+[build-system]
+requires = ["setuptools>=65"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "model-spec-evals"
+version = "0.1.0"
+description = "Evaluation suite for measuring adherence to the OpenAI model spec."
+readme = "README.md"
+requires-python = ">=3.10"
+license = {file = "LICENSE"}
+dependencies = [
+    "inspect_ai>=0.3.146,<0.4.0",
+    "pydantic>=2.4.0",
+]
+authors = [{name = "OpenAI"}]
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
