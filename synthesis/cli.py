@@ -18,16 +18,19 @@ from synthesis.client import ChatClient
 from synthesis.io import materialize_train
 from synthesis.pipeline import PIPELINES, get_pipeline, load_pipeline_file
 from synthesis.runner import _log, run_synthesis
+from synthesis.template import load_template_file
 
 _HELP = """\
 usage: python -m synthesis <command>
 
 commands:
-  list                      Show available pipelines
-  run PIPELINE [options]    Run one pipeline. Use --help after the name for its flags
-  materialize OUTPUT_DIR    Rebuild train.jsonl from jobs.jsonl
+  list                         Show available chains
+  run NAME [options]           Run one chain. Use --help after the name for its flags
+  run --template FILE [options]
+                               Run a file that defines read, prompt, and parse
+  materialize OUTPUT_DIR       Rebuild train.jsonl from jobs.jsonl
 
---pipeline-file FILE may appear anywhere and may be repeated.
+--template FILE and --pipeline-file FILE may appear anywhere and may be repeated.
 """
 
 
@@ -36,9 +39,10 @@ def main(argv: list[str] | None = None) -> int:
 
     argv = list(sys.argv[1:] if argv is None else argv)
     try:
-        pipeline_files, argv = _take_pipeline_files(argv)
+        pipeline_files, template_files, argv = _take_chain_files(argv)
         for path in pipeline_files:
             load_pipeline_file(path)
+        template_names = [load_template_file(path) for path in template_files]
     except ValueError as exc:
         print(exc, file=sys.stderr)
         return 2
@@ -46,10 +50,11 @@ def main(argv: list[str] | None = None) -> int:
         print(_HELP, end="")
         return 0
     command, rest = argv[0], argv[1:]
+    implied = template_names[0] if len(template_names) == 1 else None
     if command == "list":
         return _list(rest)
     if command == "run":
-        return _run(rest)
+        return _run(rest, implied)
     if command == "materialize":
         return _materialize(rest)
     print(f"unknown command {command!r}\n", file=sys.stderr)
@@ -57,20 +62,23 @@ def main(argv: list[str] | None = None) -> int:
     return 2
 
 
-def _take_pipeline_files(argv: list[str]) -> tuple[list[Path], list[str]]:
-    files: list[Path] = []
+def _take_chain_files(argv: list[str]) -> tuple[list[Path], list[Path], list[str]]:
+    pipeline_files: list[Path] = []
+    template_files: list[Path] = []
     rest: list[str] = []
     index = 0
     while index < len(argv):
-        if argv[index] == "--pipeline-file":
+        flag = argv[index]
+        if flag in {"--pipeline-file", "--template"}:
             if index + 1 >= len(argv):
-                raise ValueError("--pipeline-file needs a Python file")
-            files.append(Path(argv[index + 1]))
+                raise ValueError(f"{flag} needs a Python file")
+            bucket = template_files if flag == "--template" else pipeline_files
+            bucket.append(Path(argv[index + 1]))
             index += 2
             continue
-        rest.append(argv[index])
+        rest.append(flag)
         index += 1
-    return files, rest
+    return pipeline_files, template_files, rest
 
 
 def _list(argv: list[str]) -> int:
@@ -101,12 +109,28 @@ def _materialize(argv: list[str]) -> int:
     return 0
 
 
-def _run(argv: list[str]) -> int:
+def _run(argv: list[str], implied_name: str | None = None) -> int:
     if not argv or argv[0] in {"-h", "--help"}:
-        print("usage: python -m synthesis run PIPELINE [options]\n", file=sys.stderr)
-        _list([])
-        return 0 if argv else 2
-    name, pipeline_argv = argv[0], argv[1:]
+        if implied_name and argv and argv[0] in {"-h", "--help"}:
+            name, pipeline_argv = implied_name, argv
+        else:
+            print(
+                "usage: python -m synthesis run NAME [options]\n"
+                "       python -m synthesis run --template FILE [options]\n",
+                file=sys.stderr,
+            )
+            _list([])
+            return 0 if argv else 2
+    elif argv[0].startswith("-"):
+        if implied_name is None:
+            print(
+                "Pass a chain name, or one --template file.\n",
+                file=sys.stderr,
+            )
+            return 2
+        name, pipeline_argv = implied_name, argv
+    else:
+        name, pipeline_argv = argv[0], argv[1:]
     try:
         pipeline = get_pipeline(name)
     except KeyError as exc:

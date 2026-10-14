@@ -1,7 +1,8 @@
-"""Built-in pipelines.
+"""Load built-in chains.
 
-Any module in this package is imported on startup. A class decorated with
-``@register`` becomes available to the CLI.
+A module in this package that defines a ``@register`` class is imported on
+startup. The default chains live in ``synthesis.templates`` and are registered
+here as well.
 """
 
 from __future__ import annotations
@@ -15,6 +16,7 @@ def load() -> None:
         if module.name.startswith("_"):
             continue
         importlib.import_module(f"{__name__}.{module.name}")
+    import synthesis.templates  # noqa: F401  registers read/prompt/parse templates
 
 
 load()

@@ -8,7 +8,8 @@ Synthesis, Tinker supervised fine-tuning, and inference are in the repository. E
 
 | Path | What it is |
 |---|---|
-| `synthesis/` | API synthesis runner and the pipelines that define each chain |
+| `synthesis/` | API synthesis runner. A chain is `read`, `prompt`, and `parse` |
+| `synthesis/templates/` | Default chains: one Markdown section, and one JSONL prefix |
 | `training/` | Tinker SFT and inference over the synthesized conversations |
 | `model_spec/` | OpenAI Model Spec, imported with `git subtree` |
 | `claude-constitution/` | Claude's constitution, imported with `git subtree` |
@@ -18,7 +19,7 @@ The three upstream trees stay separate from this project's code. Their documents
 
 ## Synthesis
 
-A pipeline decides what to ask the model and how to read the answer. One job is usually one model call; `produce` is where a job makes several calls. The runner calls an OpenAI-compatible chat completions API, runs requests in batches with a concurrency limit, and resumes from JSONL checkpoints.
+A chain is three functions in a Python file. `read` yields records, `prompt` turns one record into the model request, and `parse` turns the reply into SFT conversations. `synthesis/templates/` holds the two default chains. Copy one and edit those functions, then pass the file with `--template`. The runner calls an OpenAI-compatible chat completions API, runs requests in batches with a concurrency limit, and resumes from JSONL checkpoints.
 
 ```bash
 python -m synthesis list

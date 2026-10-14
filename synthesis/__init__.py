@@ -1,7 +1,8 @@
 """Synthesize chat-format training data by calling a chat completions API.
 
-A pipeline turns source material into jobs. The runner executes those jobs
-with concurrency, batched scheduling, and resume. See synthesis/README.md.
+A template reads source records, builds a prompt, and turns the reply into
+SFT conversations. The runner executes those jobs with concurrency, batched
+scheduling, and resume. See synthesis/README.md.
 """
 
 from synthesis.client import ChatClient, build_chat_body

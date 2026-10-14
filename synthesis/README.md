@@ -1,6 +1,6 @@
 # Synthesis
 
-The runner calls a chat completions API. A pipeline is one synthesis chain: it enumerates jobs and turns each response into training conversations. A job is usually one model call. Override `produce` when a job needs several calls. Chains stay out of the runner, so a new chain is one Python file.
+The runner calls a chat completions API. A chain is a template with three functions: `read` yields one record per model call, `prompt` builds that call, and `parse` turns the reply into SFT conversations. The two defaults live in `synthesis/templates/`. A job is usually one model call. A class that overrides `produce` is for a job that makes several calls.
 
 ## Run
 
@@ -63,11 +63,27 @@ A training line:
 
 Tinker SFT reads `messages`. `system`, `developer`, `user`, `assistant`, and `tool` are accepted. Every saved conversation must include a user message and an assistant message.
 
-## Pipelines
+## Templates
+
+`list` shows the registered chains. A built-in name runs as before:
+
+```bash
+python -m synthesis run section_conversations --help
+```
+
+A new chain is a copy of a file in `synthesis/templates/`. Edit `read`, `prompt`, and `parse`. `add_arguments` adds flags that belong to that file. Set `name` to a lower-case identifier when the filename is not already one.
+
+```bash
+python -m synthesis run --template path/to/copy.py --output runs/name --source policy.md
+```
+
+`read` yields a dict with a string `id`, or a `Job`. `prompt` returns a `ChatRequest`, a user-message string, or a list of messages. `parse` returns `Example`s, a list of message lists, or one message list. Each saved conversation still needs a user message and an assistant message.
+
+`prompt` and `parse` receive the same dict `read` yielded, including `id`.
 
 ### `section_conversations`
 
-Split a Markdown spec or constitution into sections and ask the model for conversations that follow each section. The prompt is the `PROMPT` string at the top of `synthesis/pipelines/section_conversations.py`.
+Split a Markdown spec or constitution into sections and ask the model for conversations that follow each section. The prompt is the `PROMPT` string at the top of `synthesis/templates/section_conversations.py`.
 
 ```bash
 python -m synthesis run section_conversations \
@@ -100,59 +116,48 @@ Send a JSONL file of prefixes. Each row needs `id` and either `messages` or `pro
 
 Use this when each row is already a chat prefix. A row from an earlier `train.jsonl` works after you drop the final assistant message, or leave it when the model should continue from that reply. A boolean `trainable` on an input message is stored on the training row and left out of the API request.
 
-## Add a pipeline
+## Add a chain
 
-Create `synthesis/pipelines/<name>.py`. The package imports every module there on startup. A file outside the package is loaded with `--pipeline-file`, which may be repeated and may appear before or after the command:
-
-```bash
-python -m synthesis run translate --pipeline-file chains/translate.py --help
-```
+Copy `synthesis/templates/section_conversations.py` or `synthesis/templates/prompts.py`. The three functions are the whole chain. `--template` may be repeated. When one file is passed and no chain name is given, that file is the chain.
 
 ```python
-from synthesis.messages import normalize_messages
-from synthesis.pipeline import Pipeline, register
-from synthesis.types import ChatRequest, Example, Job, ParseError
+name = "gloss"
+description = "Turn each line into one SFT conversation."
 
+def add_arguments(parser):
+    parser.add_argument("--input", required=True)
 
-@register
-class TranslatePipeline(Pipeline):
-    name = "translate"
-    description = "Ask for a French gloss of each input line."
+def read(args):
+    for index, line in enumerate(open(args.input, encoding="utf-8"), start=1):
+        text = line.strip()
+        if text:
+            yield {"id": f"line-{index}", "text": text}
 
-    def add_arguments(self, parser):
-        parser.add_argument("--input", required=True)
+def prompt(item, args):
+    del args
+    return f"Translate to French:\n{item['text']}"
 
-    def jobs(self, args):
-        for index, line in enumerate(open(args.input, encoding="utf-8"), start=1):
-            text = line.strip()
-            if text:
-                yield Job(id=f"line-{index}", input={"text": text})
-
-    def request(self, job, args):
-        return ChatRequest(
-            messages=[{"role": "user", "content": f"Translate to French: {job.input['text']}"}],
-            temperature=0,
-        )
-
-    def parse(self, job, content, args):
-        if not content.strip():
-            raise ParseError("empty completion", raw=content)
-        messages = normalize_messages(
-            [
-                {"role": "user", "content": job.input["text"]},
-                {"role": "assistant", "content": content.strip()},
-            ],
-            require_user=True,
-            require_assistant=True,
-        )
-        return [Example(messages=messages, meta={"lang": "fr"})]
+def parse(item, content, args):
+    del args
+    if not content.strip():
+        raise ValueError("empty completion")
+    return [
+        {"role": "user", "content": item["text"]},
+        {"role": "assistant", "content": content.strip()},
+    ]
 ```
 
-`name` is a lower-case identifier and becomes the CLI command. Do not reuse runner flags (`--output`, `--model`, `--concurrency`, and the rest listed on `Pipeline`).
+```bash
+python -m synthesis run --template chains/gloss.py --output runs/gloss --input lines.txt
+```
 
-Job ids must be stable across runs. The runner refuses duplicate ids. `parse` may return several examples from one API call; they are stored as `<job id>#0`, `<job id>#1`, and so on.
+`name` is a lower-case identifier and becomes the CLI command when you pass it explicitly. Do not reuse runner flags (`--output`, `--model`, `--concurrency`, and the rest listed on `Pipeline`).
 
-`parse_json_object` in `synthesis.jsonutil` accepts a JSON object, a fenced object, or an object surrounded by prose.
+Job ids must be stable across runs. The runner refuses duplicate ids. `parse` may return several conversations from one reply; they are stored as `<job id>#0`, `<job id>#1`, and so on.
+
+`parse_json_object` in `synthesis.jsonutil` accepts a JSON object, a fenced object, or an object surrounded by prose. Raise `ParseError` from `parse` when the reply cannot be used. The runner records that and skips the job until `--retry-errors`.
+
+A `Pipeline` subclass loaded with `--pipeline-file` is for a job that calls the model more than once. A module dropped in `synthesis/pipelines/` is imported on startup.
 
 ### Several model calls in one job
 

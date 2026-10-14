@@ -3,8 +3,8 @@ import asyncio
 import json
 from pathlib import Path
 
-from synthesis.pipelines.prompts import PromptsPipeline
-from synthesis.pipelines.section_conversations import SectionConversationsPipeline
+import synthesis.pipelines  # noqa: F401  registers the default templates
+from synthesis.pipeline import get_pipeline
 from synthesis.runner import run_synthesis
 from synthesis.types import ChatRequest
 
@@ -45,7 +45,7 @@ def test_prompts_pipeline_appends_the_reply(tmp_path: Path):
 
     async def scenario() -> None:
         stats = await run_synthesis(
-            PromptsPipeline(),
+            get_pipeline("prompts"),
             args,
             client,
             tmp_path / "out",
@@ -68,6 +68,63 @@ def test_prompts_pipeline_appends_the_reply(tmp_path: Path):
     assert rows[1]["meta"]["tag"] == "color"
     user = next(message for message in rows[1]["messages"] if message["role"] == "user")
     assert user["trainable"] is False
+
+
+def test_template_prompt_list_omits_trainable_and_parse_splits_rows(tmp_path: Path):
+    path = tmp_path / "split.py"
+    path.write_text(
+        "\n".join(
+            [
+                "name = 'split_rows'",
+                "description = 'Two conversations from one reply.'",
+                "def read(args):",
+                "    del args",
+                "    yield {'id': 's', 'title': 'Be honest'}",
+                "def prompt(item, args):",
+                "    del args",
+                "    return [{'role': 'user', 'content': item['title'], 'trainable': False}]",
+                "def parse(item, content, args):",
+                "    del content, args",
+                "    return [",
+                "        {'messages': [",
+                "            {'role': 'user', 'content': 'a'},",
+                "            {'role': 'assistant', 'content': 'b'},",
+                "        ], 'meta': {'section': item['title']}},",
+                "        [",
+                "            {'role': 'user', 'content': 'c'},",
+                "            {'role': 'assistant', 'content': 'd'},",
+                "        ],",
+                "    ]",
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    from synthesis.template import load_template_file
+
+    load_template_file(path)
+    client = RecordingClient("unused")
+
+    async def scenario() -> None:
+        stats = await run_synthesis(
+            get_pipeline("split_rows"),
+            argparse.Namespace(),
+            client,
+            tmp_path / "out",
+            concurrency=1,
+            batch_size=1,
+        )
+        assert stats.wrote == 1
+
+    asyncio.run(scenario())
+    assert client.requests[0].messages == [{"role": "user", "content": "Be honest"}]
+    rows = [
+        json.loads(line)
+        for line in (tmp_path / "out" / "train.jsonl").read_text(encoding="utf-8").splitlines()
+    ]
+    assert [row["id"] for row in rows] == ["s#0", "s#1"]
+    assert rows[0]["meta"]["section"] == "Be honest"
+    assert rows[1]["messages"][1]["content"] == "d"
 
 
 def test_section_pipeline_parses_conversations(tmp_path: Path):
@@ -104,7 +161,7 @@ def test_section_pipeline_parses_conversations(tmp_path: Path):
 
     async def scenario() -> None:
         stats = await run_synthesis(
-            SectionConversationsPipeline(),
+            get_pipeline("section_conversations"),
             args,
             client,
             tmp_path / "out",

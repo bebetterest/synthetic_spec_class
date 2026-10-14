@@ -83,6 +83,51 @@ def test_pipeline_file_is_loaded_before_the_command(tmp_path: Path, capsys):
     assert not output.exists()
 
 
+def test_template_file_defines_read_prompt_and_parse(tmp_path: Path, capsys):
+    path = tmp_path / "gloss.py"
+    path.write_text(
+        "\n".join(
+            [
+                "name = 'gloss'",
+                "description = 'One string in, one conversation out.'",
+                "def add_arguments(parser):",
+                "    parser.add_argument('--text', required=True)",
+                "def read(args):",
+                "    yield {'id': 'only', 'text': args.text}",
+                "def prompt(item, args):",
+                "    del args",
+                "    return 'Gloss: ' + item['text']",
+                "def parse(item, content, args):",
+                "    del args",
+                "    return [",
+                "        {'role': 'user', 'content': item['text']},",
+                "        {'role': 'assistant', 'content': content},",
+                "    ]",
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    output = tmp_path / "out"
+    code = main(
+        [
+            "run",
+            "--template",
+            str(path),
+            "--output",
+            str(output),
+            "--text",
+            "hello",
+            "--dry-run",
+        ]
+    )
+    assert code == 0
+    captured = capsys.readouterr()
+    assert "gloss" in captured.err
+    assert "Gloss: hello" in captured.err
+    assert not output.exists()
+
+
 def test_materialize_rebuilds_train_jsonl(tmp_path: Path, capsys):
     output = tmp_path / "out"
     output.mkdir()

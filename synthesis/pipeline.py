@@ -1,15 +1,11 @@
 """Pipeline contract.
 
-A synthesis chain is a :class:`Pipeline`. The runner schedules jobs. The
-pipeline decides how many model calls each job makes.
+The runner schedules jobs. A chain decides what each job reads, what prompt it
+sends, and how the reply becomes training rows.
 
-The usual chain implements :meth:`Pipeline.jobs`, :meth:`Pipeline.request`,
-and :meth:`Pipeline.parse`. That is one model call per job. A multi-step chain
-overrides :meth:`Pipeline.produce` and calls the client once per step.
-
-Register a class with :func:`register`. A module in ``synthesis/pipelines/``
-is imported on startup. A file outside the package is loaded with
-``--pipeline-file``.
+The usual chain is a template: ``read``, ``prompt``, and ``parse`` in a Python
+file. The files in ``synthesis/templates/`` are the defaults. A multi-step
+chain can still be a :class:`Pipeline` that overrides :meth:`Pipeline.produce`.
 """
 
 from __future__ import annotations
@@ -19,6 +15,7 @@ import importlib.util
 import sys
 from collections.abc import Iterable
 from pathlib import Path
+from typing import Any
 
 from synthesis.types import ChatRequest, Example, Job, ParseError, Produced
 
@@ -127,8 +124,12 @@ def get_pipeline(name: str) -> Pipeline:
     return cls()
 
 
-def load_pipeline_file(path: Path) -> None:
-    """Import a Python file so its ``@register`` classes become available."""
+def load_pipeline_file(path: Path) -> Any:
+    """Import a Python file and return the module.
+
+    A ``@register`` class in the file is registered on import. A template file
+    is registered by :func:`synthesis.template.load_template_file`.
+    """
 
     if not path.is_file():
         raise ValueError(f"pipeline file not found: {path}")
@@ -138,10 +139,11 @@ def load_pipeline_file(path: Path) -> None:
     existing = sys.modules.get(module_name)
     existing_file = getattr(existing, "__file__", None)
     if existing is not None and existing_file and Path(existing_file).resolve() == resolved:
-        return
+        return existing
     spec = importlib.util.spec_from_file_location(module_name, path)
     if spec is None or spec.loader is None:
         raise ValueError(f"cannot import pipeline file: {path}")
     module = importlib.util.module_from_spec(spec)
     sys.modules[module_name] = module
     spec.loader.exec_module(module)
+    return module
